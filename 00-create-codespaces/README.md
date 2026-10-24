@@ -419,6 +419,8 @@ mkdir -p /home/vscode/.ssh/
 code ~/.ssh/vockey.pem
 ```
 
+![](img/codespaces11.png)
+
 De volta à aba do AWS Academy, clique em `AWS Details`, expanda `SSH Key` clicando em `Show` e copie o conteúdo da chave privada. Cole no arquivo `~/.ssh/vockey.pem` aberto e salve com `Ctrl+S`.
 
 ![](img/codespacess12.png)
@@ -434,7 +436,7 @@ De volta à aba do AWS Academy, clique em `AWS Details`, expanda `SSH Key` clica
 ```bash
 chmod 400 ~/.ssh/vockey.pem
 ```
-
+![](img/codespaces12.png)
 <details>
 <summary><b>💡 Clique para entender: por que <code>chmod 400</code> na chave</b></summary>
 <blockquote>
