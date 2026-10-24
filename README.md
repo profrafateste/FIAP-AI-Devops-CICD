@@ -1,5 +1,7 @@
 # AI-Devops-CICD
 
+![AI-Devops-CICD](./FIAP.png)
+
 Repositório dos laboratórios práticos da disciplina **AI-Devops-CICD**, do MBA da **FIAP** com foco em IA e GenAI, ministrada pelo **Prof. Rafael Barbosa**. Aqui estão as demos guiadas, os exercícios, o código Terraform e Ansible e os pipelines de CI/CD que usamos em aula.
 
 Quer começar já? Vá direto para [Como começar](#como-começar).
