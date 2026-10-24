@@ -95,7 +95,6 @@ cd /workspaces/FIAP-AI-Devops-CICD/01-Terraform/demos/01-Plan-Apply/EC2
 **2.** Inicialize o diretório de trabalho:
 
 ```bash
-cd /workspaces/FIAP-AI-Devops-CICD/01-Terraform/demos/01-Plan-Apply/EC2
 terraform init
 ```
 
@@ -535,43 +534,87 @@ Documentação: [aws ssm send-command](https://docs.aws.amazon.com/cli/latest/re
 
 <a id="passo-13"></a>
 
-**13.** Antes do `apply`, precisamos liberar o tráfego HTTP para conseguir abrir a página no navegador. Abra o [painel EC2 da AWS](https://us-east-1.console.aws.amazon.com/ec2/home?region=us-east-1#Home:) numa aba do navegador.
+**13.** Antes do `apply`, precisamos liberar o tráfego para conseguir abrir a página no navegador. A EC2 deste lab não declara rede nem Security Group, então a AWS a coloca na **VPC default**, com o **Security Group `default`** dessa VPC. É nas **regras de entrada** desse grupo que vamos mexer.
 
 ---
 
 <a id="passo-14"></a>
 
-**14.** No menu lateral esquerdo, clique em **Security Groups**.
+**14.** No terminal do Codespaces, copie o bloco inteiro abaixo, cole e tecle Enter. Ele encontra a VPC default e o Security Group `default` dela, **apaga todas as regras de entrada** que existirem e adiciona uma única regra: **todo o tráfego, de qualquer origem (`0.0.0.0/0`)**. As regras de saída não são alteradas.
 
-![](images/painelec2.png)
+```bash
+VPC=$(aws ec2 describe-vpcs --region us-east-1 --filters Name=is-default,Values=true --query 'Vpcs[0].VpcId' --output text)
+SG=$(aws ec2 describe-security-groups --region us-east-1 --filters Name=vpc-id,Values=$VPC Name=group-name,Values=default --query 'SecurityGroups[0].GroupId' --output text)
+echo "VPC default: $VPC | Security Group default: $SG"
+for REGRA in $(aws ec2 describe-security-group-rules --region us-east-1 --filters Name=group-id,Values=$SG --query 'SecurityGroupRules[?IsEgress==`false`].SecurityGroupRuleId' --output text); do aws ec2 revoke-security-group-ingress --region us-east-1 --group-id $SG --security-group-rule-ids $REGRA > /dev/null; done
+aws ec2 authorize-security-group-ingress --region us-east-1 --group-id $SG --protocol -1 --cidr 0.0.0.0/0 > /dev/null
+aws ec2 describe-security-group-rules --region us-east-1 --filters Name=group-id,Values=$SG --query 'SecurityGroupRules[?IsEgress==`false`].[IpProtocol,CidrIpv4]' --output table
+```
+
+> Saída esperada (os IDs variam). A tabela do final serve de conferência: **uma única linha**, protocolo `-1` (todo o tráfego) e origem `0.0.0.0/0`:
+>
+> ```text
+> VPC default: vpc-0123456789abcdef0 | Security Group default: sg-0123456789abcdef0
+> ----------------------------
+> |DescribeSecurityGroupRules|
+> +-------+------------------+
+> |  -1   |  0.0.0.0/0       |
+> +-------+------------------+
+> ```
+
+Você pode executar o bloco quantas vezes quiser. Como ele sempre apaga o que existe antes de criar a regra, o resultado é o mesmo e não aparece erro de regra duplicada.
+
+<details>
+<summary><b>💡 Clique para entender cada linha</b></summary>
+<blockquote>
+
+| Linha | O que faz |
+|---|---|
+| `VPC=$(...)` | Pergunta à AWS qual é a VPC marcada como default (`is-default=true`) e guarda o ID na variável `VPC`. |
+| `SG=$(...)` | Procura, **dentro dessa VPC**, o Security Group chamado `default` e guarda o ID em `SG`. Filtrar pela VPC evita pegar o `default` de outra rede. |
+| `echo` | Mostra os dois IDs, para você conferir que algo foi encontrado. |
+| `for REGRA in ...` | Lista os IDs de todas as regras de **entrada** (`IsEgress==false`) do grupo e apaga uma a uma com `revoke-security-group-ingress`. Se não houver nenhuma, o laço não faz nada. |
+| `authorize-security-group-ingress` | Cria a regra nova: `--protocol -1` significa todos os protocolos e portas, e `--cidr 0.0.0.0/0` significa qualquer endereço da internet. |
+| `describe-security-group-rules ... --output table` | Lê de novo as regras de entrada e imprime a tabela de conferência. |
+
+O `> /dev/null` só esconde o JSON que a AWS devolve a cada alteração, para a saída ficar curta. Se houver erro, ele aparece mesmo assim, porque os erros saem por outro canal.
+
+</blockquote>
+</details>
+
+<details>
+<summary><b>⚠ Se der erro no passo 14</b></summary>
+<blockquote>
+
+- `Unable to locate credentials` ou `ExpiredToken`: as credenciais do Learner Lab não estão no Codespaces ou expiraram. Refaça o [Início de aula](../../../00-create-codespaces/Inicio-de-aula.md) e rode o bloco de novo.
+- A linha `echo` mostra `None` no lugar dos IDs: a conta não tem VPC default. No Learner Lab ela existe; avise o professor.
+- `UnauthorizedOperation`: a sessão do Learner Lab não está ativa (a bolinha não está verde). Inicie o lab, atualize as credenciais e rode o bloco de novo.
+
+</blockquote>
+</details>
 
 ---
 
 <a id="passo-15"></a>
 
-**15.** Selecione o Security Group com `default` na coluna Nome. Vá à aba **Regras de entrada** e clique em **Editar regras de entrada**.
+**15.** Confira o resultado também no console. Abra o [painel EC2 da AWS](https://us-east-1.console.aws.amazon.com/ec2/home?region=us-east-1#Home:), clique em **Security Groups** no menu lateral, selecione o grupo com `default` na coluna Nome e abra a aba **Regras de entrada**.
+
+![](images/painelec2.png)
 
 ![](images/sgpainel.png)
-
-![](images/sgpainel2.png)
 
 ---
 
 <a id="passo-16"></a>
 
-**16.** Apague as regras existentes, adicione uma regra liberando **HTTP (porta 80)** para **Qualquer Local-IPv4** e clique em **Salvar regras**.
+**16.** A aba **Regras de entrada** deve mostrar uma única regra: **Todo o tráfego**, com origem `0.0.0.0/0`, a mesma da tabela do passo 14. Não é preciso editar nada no console.
 
-![](images/anywhere.png)
-
-![](images/anywhere2.png)
-
-<!-- TROCAR-IMAGEM: images/anywhere3.png | motivo: o print mostra a regra 'Todo o tráfego' com origem 0.0.0.0/0, que abre TODAS as portas; o texto e o WARNING pedem só HTTP na porta 80, e o passo 31 só remove a regra da porta 80 | capturar: console EC2 > Security Groups > default > Editar regras de entrada (passo 16), com UMA regra Tipo 'HTTP', Protocolo 'TCP', Intervalo de portas '80', Origem 'Qualquer local-IPv4' (0.0.0.0/0), antes de clicar em 'Salvar regras' -->
 ![](images/anywhere3.png)
 
 > [!WARNING]
-> **Porta 80 aberta para qualquer origem é uma exceção efêmera de laboratório, não um padrão de produção.** Ela é aceitável aqui porque a conta do Learner Lab é temporária, a página é pública e estática e não há nenhum dado sensível na máquina. O tráfego é HTTP, sem criptografia; este lab não configura HTTPS. Repare que **não precisamos abrir a porta 22**: o provisionamento é via SSM (que sai de dentro da máquina), não por SSH. Em produção, o Security Group seria descrito em código e com origem restrita, como faremos na demo Count. O passo [31](#passo-31), no fim do lab, remove essa regra.
+> **Todo o tráfego aberto para qualquer origem é uma exceção efêmera de laboratório, não um padrão de produção.** Ela é aceitável aqui porque a conta do Learner Lab é temporária, a página é pública e estática e não há nenhum dado sensível na máquina. O tráfego da página é HTTP, sem criptografia; este lab não configura HTTPS. O provisionamento não depende dessa regra: ele é feito via SSM (que sai de dentro da máquina), não por SSH. Em produção, o Security Group seria descrito em código, liberando só as portas necessárias e com origem restrita, como faremos na demo Count. O passo [31](#passo-31), no fim do lab, desfaz essa regra.
 
-Por que apagar a regra que já existia? A regra padrão do Security Group `default` libera **todo o tráfego vindo de outros recursos do mesmo grupo**. Este lab não precisa dela, e apagá-la deixa o grupo só com a regra que você entende (HTTP na porta 80). O risco: se outros recursos da sua conta usam o grupo `default` para conversar entre si, eles perdem essa comunicação. Neste lab nada depende dela, e o passo [31](#passo-31) mostra como restaurá-la.
+Por que apagar as regras que já existiam? A regra padrão do Security Group `default` libera **todo o tráfego vindo de outros recursos do mesmo grupo**. Apagar tudo antes de criar a regra nova deixa o grupo com uma única regra que você entende, e o resultado é sempre o mesmo, não importa o que havia antes. O risco: se outros recursos da sua conta usam o grupo `default` para conversar entre si, eles perdem essa comunicação até o passo [31](#passo-31), que restaura a regra padrão.
 
 ---
 
@@ -650,9 +693,9 @@ O hostname é a prova de que a página veio da EC2 que o Terraform acabou de cri
 <summary><b>⚠ Se der erro: a página do navegador não carrega</b></summary>
 <blockquote>
 
-Causa mais comum: o Security Group ainda não está liberando a porta 80. Confirme o passo 16. Se o `apply` terminou com `Status=Success` no log do provisionamento, o Nginx já está instalado — o problema é só a porta. Valide também que a instância está `running` no painel e que o DNS colado é exatamente o do output (`http://<dns>`).
+Causa mais comum: o Security Group ainda não está liberando o tráfego. Rode de novo o bloco do passo [14](#passo-14) e confira a tabela no final. Se o `apply` terminou com `Status=Success` no log do provisionamento, o Nginx já está instalado — o problema é só a regra de entrada. Valide também que a instância está `running` no painel e que o DNS colado é exatamente o do output (`http://<dns>`).
 
-Um **timeout** (o navegador fica carregando, o `curl` não responde) quase sempre é isso: a regra de entrada da porta 80 não existe ou foi salva em outro Security Group. Outra causa comum é o navegador forçar `https://`: digite `http://` explicitamente, porque o Nginx deste lab só escuta na porta 80.
+Um **timeout** (o navegador fica carregando, o `curl` não responde) quase sempre é isso: a regra de entrada não existe ou foi criada em outro Security Group. Outra causa comum é o navegador forçar `https://`: digite `http://` explicitamente, porque o Nginx deste lab só escuta na porta 80.
 
 </blockquote>
 </details>
@@ -715,7 +758,6 @@ terraform destroy -auto-approve
 > Destroy complete! Resources: 2 destroyed.
 > ```
 
-<!-- TROCAR-IMAGEM: images/painelec22.png (só neste passo 19; o passo 7 continua com o arquivo atual, que está correto para a EC2 sem nome) | motivo: o print mostra duas instâncias sem nome; a EC2 da Parte 2 tem a tag Name = quantum-ai-web | capturar: painel EC2 > Instâncias depois do 'terraform destroy' do passo 19, com a linha 'quantum-ai-web' no estado 'Encerrado'; salvar como images/painel-ec2-quantum-ai-web-encerrada.png e trocar a referência deste passo -->
 ![ec22](images/painelec22.png)
 
 ### Checkpoint
@@ -1119,25 +1161,32 @@ terraform destroy -auto-approve
 
 <a id="passo-31"></a>
 
-**31.** Feche a exceção da porta 80. A regra HTTP que você criou no passo [16](#passo-16) continua no Security Group `default` mesmo depois do `destroy`, porque foi criada no console, fora do Terraform. No terminal do Codespaces, rode:
+**31.** Feche a exceção de laboratório. A regra que o passo [14](#passo-14) criou continua no Security Group `default` mesmo depois do `destroy`, porque foi criada pela AWS CLI, fora do Terraform. No terminal do Codespaces, copie o bloco inteiro, cole e tecle Enter. Ele apaga todas as regras de entrada do grupo e restaura a **regra padrão da AWS**: todo o tráfego, mas só vindo de recursos do próprio grupo.
 
 ```bash
-aws ec2 revoke-security-group-ingress --group-name default --protocol tcp --port 80 --cidr 0.0.0.0/0 --region us-east-1
+VPC=$(aws ec2 describe-vpcs --region us-east-1 --filters Name=is-default,Values=true --query 'Vpcs[0].VpcId' --output text)
+SG=$(aws ec2 describe-security-groups --region us-east-1 --filters Name=vpc-id,Values=$VPC Name=group-name,Values=default --query 'SecurityGroups[0].GroupId' --output text)
+echo "VPC default: $VPC | Security Group default: $SG"
+for REGRA in $(aws ec2 describe-security-group-rules --region us-east-1 --filters Name=group-id,Values=$SG --query 'SecurityGroupRules[?IsEgress==`false`].SecurityGroupRuleId' --output text); do aws ec2 revoke-security-group-ingress --region us-east-1 --group-id $SG --security-group-rule-ids $REGRA > /dev/null; done
+aws ec2 authorize-security-group-ingress --region us-east-1 --group-id $SG --protocol -1 --source-group $SG > /dev/null
+aws ec2 describe-security-group-rules --region us-east-1 --filters Name=group-id,Values=$SG --query 'SecurityGroupRules[?IsEgress==`false`].[IpProtocol,ReferencedGroupInfo.GroupId]' --output table
 ```
 
-> Saída esperada (o ID da regra varia):
+> Saída esperada (os IDs variam). A tabela deve ter **uma única linha**, protocolo `-1` e, como origem, o **próprio** `sg-...` mostrado na linha `echo`; nenhuma linha com `0.0.0.0/0`:
 >
 > ```text
-> {
->     "Return": true,
->     ...
-> }
+> VPC default: vpc-0123456789abcdef0 | Security Group default: sg-0123456789abcdef0
+> -----------------------------------
+> |   DescribeSecurityGroupRules    |
+> +-----+---------------------------+
+> |  -1 |  sg-0123456789abcdef0     |
+> +-----+---------------------------+
 > ```
 
-Se aparecer `InvalidPermission.NotFound`, a regra já não existe e não há nada a limpar. Pelo console, o caminho é o dos passos 14 e 15: **Security Groups** → `default` → **Editar regras de entrada** → **Excluir** na regra HTTP → **Salvar regras**. Para restaurar a regra original do grupo, adicione ali uma regra **Todo o tráfego** com origem **Personalizado** apontando para o próprio grupo `default` (`sg-...`), como aparece no primeiro print do passo 16.
+A única diferença para o bloco do passo 14 está na penúltima linha: `--source-group $SG` no lugar de `--cidr 0.0.0.0/0`, ou seja, a origem passa a ser o próprio grupo em vez da internet inteira. Assim como o do passo 14, este bloco pode ser executado mais de uma vez sem erro.
 
-<!-- NOVA-IMAGEM: images/sg-default-sem-porta-80.png | capturar: console EC2 > Security Groups > default > aba 'Regras de entrada' depois do passo 31, mostrando que a regra HTTP/80 com origem 0.0.0.0/0 não existe mais | depois de salvar o arquivo, descomente a linha abaixo -->
-<!-- ![Regras de entrada do Security Group default sem a regra da porta 80](images/sg-default-sem-porta-80.png) -->
+<!-- NOVA-IMAGEM: images/sg-default-restaurado.png | capturar: console EC2 > Security Groups > default > aba 'Regras de entrada' depois do passo 31, mostrando UMA regra 'Todo o tráfego' com origem o próprio sg-... e nenhuma regra com 0.0.0.0/0 | depois de salvar o arquivo, descomente a linha abaixo -->
+<!-- ![Regras de entrada do Security Group default restauradas](images/sg-default-restaurado.png) -->
 
 ### Checkpoint
 
@@ -1146,7 +1195,7 @@ Se chegou até aqui, você:
 - listou os recursos que o Terraform rastreia (`state list`)
 - inspecionou os atributos de um recurso no estado (`state show`)
 - entendeu que esse estado, hoje local, precisa virar compartilhado — o gancho da demo 01.4
-- removeu a regra da porta 80, fechando a exceção de laboratório
+- restaurou a regra padrão do Security Group `default`, fechando a exceção de laboratório
 
 ---
 
